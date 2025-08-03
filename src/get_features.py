@@ -7,7 +7,7 @@ import time
 import sys
 from get_scores import *
 
-atoms_pro = ['C', 'N', 'O', '"S']
+atoms_pro = ['C', 'N', 'O', 'S']
 atoms_lig = ['C', 'N', 'O', 'S', 'P', 'F', 'Cl', 'Br', 'I']
 
 class GET_PAIRWISE_FEATURES:
