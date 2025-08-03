@@ -150,7 +150,6 @@ def get_args(args):
     					help='path to data folder directory')
     parser.add_argument('-fd', '--feature_folder', type=str,
     					help='path to the directory where features will be saved')
-    parser.add_argument('-m', '--parallel_running', type = str, help='activate parallel processing, choose y or n')
 
     
     args = parser.parse_args()
@@ -177,11 +176,6 @@ def cli_main():
 
     PAIR_FEATURES = GET_PAIRWISE_FEATURES(args)
     pair_df = PAIR_FEATURES.get_pairwise_features(parameters)
-    print(tri_df)
-    # print("ggl_df columns:", ggl_df.columns)
-    # print("tri_df columns:", tri_df.columns)
-    # print("pair_df columns:", pair_df.columns)
-
     merged_df = merge_features(pair_df, tri_df, ggl_df)
 
     merged_df.to_csv(f"{args.feature_folder}/mb_features.csv", index=False, float_format='%.5f')
