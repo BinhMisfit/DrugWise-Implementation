@@ -8,20 +8,20 @@ from scipy.spatial import  KDTree
 from collections import defaultdict
 atoms_lig = ['C','N','O','S','P','F','Cl','Br','I']
 atoms_pro = ['C','N','O','S']
-radius_map = { 'N': 1.55,
-            'O': 1.5,
-            'F': 1.5,
-            'Si': 2.1,
-            'P': 1.85,
-            'S': 1.8,
-            'Cl': 1.7,
-            'C': 1.7,
-            'Br': 1.5,
-            'I': 1.5
-        }
+radius_map = {
+                            'N': 1.55,
+                            'O': 1.5,
+                            'F': 1.5,
+                            'Si': 2.1,
+                            'P': 1.85,
+                            'S': 1.8,
+                            'Cl': 1.7,
+                            'C': 1.7,
+                            'Br': 1.5,
+                            'I': 1.5
+                        }
 class KernelFunction:
-    def __init__(self, kernel_type='exponential_kernel',
-                 power=2.0, tau=1.0):
+    def __init__(self, kernel_type, power, tau):
         self.kernel_type = kernel_type
         self.power = power
         self.tau = tau
@@ -39,6 +39,7 @@ class KernelFunction:
     def lorentz_kernel(self, d, sum_radii):
         eta = self.tau*sum_radii
         return (eta / (eta + d)) ** self.power
+    
 class CLUSTER:
     def get_cluster(self): 
         cluster = []
@@ -69,141 +70,165 @@ class CLUSTER:
         else:
             formatted_name = str(cluster)  
         return formatted_name
-class TRIPLET_SCORE:
-    def __init__(self, cutoff, stat, tau, kernel_type):
-        self.Kernel = KernelFunction(kernel_type='l', power=5.0, tau=0.5)
+    
+class PARAMS:
+    def __init__(self, cutoff,tau, kernel_type, power):
+        self.cutoff = cutoff
+        self.tau = tau
+        self.kernel_type = kernel_type
+        self.power = power
+
+class TRIPLET_SCORE(PARAMS):
+    def __init__(self, cutoff, tau, kernel_type, power):
+        super().__init__(cutoff, tau, kernel_type, power)
+        self.Kernel = KernelFunction(self.kernel_type, self.power, self.tau)
         self.cutoff = cutoff
         self.atom_lig = atoms_lig
         self.atom_pro = atoms_pro
-        self.stat = stat
-        self.pairwise_atom_type_radii = self.get_pairwise_atom_type_radii()
+        self.power = power
         self.cluster = CLUSTER()
         self.tau = tau
         self.kernel_type = kernel_type
-    def get_pairwise_atom_type_radii(self):
-        protein_atom_radii_dict = {a: radius_map[a] for a in self.atom_pro}
-        ligand_atom_radii_dict = {a: radius_map[a] for a in self.atom_lig}
-        pairwise_atom_type_radii = {}
-        for i in product(self.atom_pro, self.atom_lig):
-            pairwise_atom_type_radii[f"{i[0]}-{i[1]}"] =  protein_atom_radii_dict[i[0]] + ligand_atom_radii_dict[i[1]] 
-        for i in product(self.atom_pro, self.atom_pro):
-            pairwise_atom_type_radii[f"{i[0]}-{i[1]}"] =  protein_atom_radii_dict[i[0]] + protein_atom_radii_dict[i[1]] 
-        for i in product(self.atom_lig, self.atom_lig):
-            pairwise_atom_type_radii[f"{i[0]}-{i[1]}"] =  ligand_atom_radii_dict[i[0]] + ligand_atom_radii_dict[i[1]] 
-        return pairwise_atom_type_radii
-    def get_triplet(self, protein_file, ligand_file):
-            protein_df = self.pdb_to_df(protein_file)
-            ligand_df = self.mol2_to_df(ligand_file)
-            prot_coords = protein_df[['X', 'Y', 'Z']].values
-            prot_elements = protein_df['ATOM_ELEMENT'].values
-            lig_coords = ligand_df[['X', 'Y', 'Z']].values
-            lig_elements = ligand_df['ATOM_ELEMENT'].values
-            protein_tree = KDTree(prot_coords)
-            ligand_tree = KDTree(lig_coords)
-            triplet_scores = defaultdict(list)
-            kernel = self.Kernel.kernel_function
-            cutoff = self.cutoff
-            for lig_idx in range(len(lig_coords)):
-                lig_pos = lig_coords[lig_idx]
-                lig_elem = lig_elements[lig_idx]
-                protein_neighbors = protein_tree.query_ball_point(lig_pos, cutoff)
-                if len(protein_neighbors) < 2:
-                    continue
-                prot_pairs = list(combinations(protein_neighbors, 2))
-                prot_distances = cdist(prot_coords[protein_neighbors], prot_coords[protein_neighbors])
-                for (i, j) in combinations(range(len(protein_neighbors)), 2):
-                    if prot_distances[i, j] > cutoff:
-                        continue
-                    prot_idx1 = protein_neighbors[i]
-                    prot_idx2 = protein_neighbors[j]
-                    prot_elem1 = prot_elements[prot_idx1]
-                    prot_elem2 = prot_elements[prot_idx2]
-                    d1 = np.linalg.norm(prot_coords[prot_idx1] - lig_pos)
-                    d2 = np.linalg.norm(prot_coords[prot_idx2] - lig_pos)
-                    d3 = prot_distances[i, j]
-                    r1 = self.pairwise_atom_type_radii[f"{prot_elem1}-{lig_elem}"]
-                    r2 = self.pairwise_atom_type_radii[f"{prot_elem2}-{lig_elem}"]
-                    r3 = self.pairwise_atom_type_radii[f"{prot_elem1}-{prot_elem2}"]
-                    score = kernel(d1, r1) + kernel(d2, r2) + kernel(d3, r3)
-                    triplet_scores[f"{prot_elem1}(pro)-{prot_elem2}(pro)-{lig_elem}(lig)"].append(score)
-            for prot_idx in range(len(prot_coords)):
-                prot_pos = prot_coords[prot_idx]
-                prot_elem = prot_elements[prot_idx]
-                ligand_neighbors = ligand_tree.query_ball_point(prot_pos, cutoff)
-                if len(ligand_neighbors) < 2:
-                    continue
-                lig_distances = cdist(lig_coords[ligand_neighbors], lig_coords[ligand_neighbors])
-                for (i, j) in combinations(range(len(ligand_neighbors)), 2):
-                    if lig_distances[i, j] > cutoff:
-                        continue
-                    lig_idx1 = ligand_neighbors[i]
-                    lig_idx2 = ligand_neighbors[j]
-                    lig_elem1 = lig_elements[lig_idx1]
-                    lig_elem2 = lig_elements[lig_idx2]
-                    d1 = np.linalg.norm(lig_coords[lig_idx1] - prot_pos)
-                    d2 = np.linalg.norm(lig_coords[lig_idx2] - prot_pos)
-                    d3 = lig_distances[i, j]
-                    r1 = self.pairwise_atom_type_radii[f"{prot_elem}-{lig_elem1}"]
-                    r2 = self.pairwise_atom_type_radii[f"{prot_elem}-{lig_elem2}"]
-                    r3 = self.pairwise_atom_type_radii[f"{lig_elem1}-{lig_elem2}"]
-                    score = kernel(d1, r1) + kernel(d2, r2) + kernel(d3, r3)
-                    triplet_scores[f"{prot_elem}(pro)-{lig_elem1}(lig)-{lig_elem2}(lig)"].append(score)
-            self._process_homogeneous_case(prot_coords, prot_elements, protein_tree, "pro", triplet_scores)
-            self._process_homogeneous_case(lig_coords, lig_elements, ligand_tree, "lig", triplet_scores)
-            self._add_missing_clusters(triplet_scores)
-            return self._create_final_dataframe(triplet_scores)
-    def _process_homogeneous_case(self, coords, elements, tree, suffix, triplet_scores):
-        """Process cases with all-protein or all-ligand triplets"""
-        cutoff = self.cutoff
+
+    def pdb_to_df(self, pdb_file):
+        ppdb = PandasPdb()
+        ppdb.read_pdb(pdb_file)
+        ppdb_all_df = ppdb.df['ATOM']
+        ppdb_df = ppdb_all_df[ppdb_all_df['element_symbol'].apply(lambda x: x).isin(self.atom_pro)]
+        atom_index = ppdb_df['atom_number']
+        atom_element = ppdb_df['element_symbol']
+        x, y, z = ppdb_df['x_coord'], ppdb_df['y_coord'], ppdb_df['z_coord']
+        df = pd.DataFrame.from_dict({'ATOM_INDEX': atom_index, 
+                                     'ATOM_ELEMENT': atom_element,
+                                     'X': x, 
+                                     'Y': y, 
+                                     'Z': z,
+                                     'radi': [radius_map.get(elem, np.nan) for elem in atom_element]})
+
+        return df 
+
+    def mol2_to_df(self, mol2_file):
+        df_mol2 = PandasMol2().read_mol2(mol2_file).df
+        filtered_df_mol2 = df_mol2.loc[df_mol2['atom_type'].apply(lambda x: x.split('.')[0]).isin(self.atom_lig)]
+        df = pd.DataFrame({
+            'ATOM_INDEX': filtered_df_mol2['atom_id'],
+            'ATOM_ELEMENT': filtered_df_mol2['atom_type'].apply(lambda x: x.split('.')[0]),
+            'X': filtered_df_mol2['x'],
+            'Y': filtered_df_mol2['y'],
+            'Z': filtered_df_mol2['z'],
+            'radi':  filtered_df_mol2['atom_type'].apply(lambda x: radius_map.get(x.split('.')[0], np.nan))
+        })
+
+        return(df)
+
+    def calculate_ri(self, matrix1, matrix2):
+        if not matrix1 or not matrix2:
+            return 0.0
+
+        coords1 = np.array([atom[2:5] for atom in matrix1], dtype=np.float32)
+        coords2 = np.array([atom[2:5] for atom in matrix2], dtype=np.float32)
+        radi1 = np.array([atom[-1] for atom in matrix1], dtype=np.float32)
+        radi2 = np.array([atom[-1] for atom in matrix2], dtype=np.float32)
+
+        tree = KDTree(coords2)
+        neighbors_list = tree.query_ball_point(coords1, self.cutoff)
+
+        scores = []
         kernel = self.Kernel.kernel_function
-        for center_idx in range(len(coords)):
-            center_pos = coords[center_idx]
-            center_elem = elements[center_idx]
-            neighbors = tree.query_ball_point(center_pos, cutoff)
-            if len(neighbors) < 2:
+        for i, neighbor_idxs in enumerate(neighbors_list):
+            if not neighbor_idxs:
                 continue
-            neighbor_coords = coords[neighbors]
-            dist_matrix = cdist(neighbor_coords, neighbor_coords)
-            for (i, j) in combinations(range(len(neighbors)), 2):
-                if dist_matrix[i, j] > cutoff:
-                    continue
-                elem1 = elements[neighbors[i]]
-                elem2 = elements[neighbors[j]]
-                d1 = np.linalg.norm(neighbor_coords[i] - center_pos)
-                d2 = np.linalg.norm(neighbor_coords[j] - center_pos)
-                d3 = dist_matrix[i, j]
-                r1 = self.pairwise_atom_type_radii[f"{center_elem}-{elem1}"]
-                r2 = self.pairwise_atom_type_radii[f"{center_elem}-{elem2}"]
-                r3 = self.pairwise_atom_type_radii[f"{elem1}-{elem2}"]
-                score = kernel(d1, r1) + kernel(d2, r2) + kernel(d3, r3)
-                type_str = f"{center_elem}({suffix})-{elem1}({suffix})-{elem2}({suffix})"
-                triplet_scores[type_str].append(score)
-    def _add_missing_clusters(self, triplet_scores):
-        """Ensure all predefined clusters are present in results"""
-        cls = CLUSTER()
-        cluster = cls.get_cluster()
-        for clu in cluster:
-            c = CLUSTER.format_clustername(clu)
-            if c not in triplet_scores:
-                triplet_scores[c] = [0]
-        if not triplet_scores:
-            triplet_scores['NA'] = [0]
+
+            idx1 = np.full(len(neighbor_idxs), i, dtype=int)
+            idx2 = np.array(neighbor_idxs, dtype=int)
+
+            d = np.linalg.norm(coords1[idx1] - coords2[idx2], axis=1)
+            sum_radi =(radi1[idx1] + radi2[idx2])
+
+            mask = d <= self.cutoff
+            if np.any(mask):
+                scores.append(np.sum(kernel(d[mask], sum_radi[mask])))
+
+        return float(np.sum(scores))
+
+    def calculate_ri_triplet(self, atom1s, atom2s, atom3s):
+        if any([len(atom1s) == 0, len(atom2s) == 0, len(atom3s) == 0]):
+            return {
+                "SUM": 0.0,
+                "MEAN": 0.0,
+                "STD": 0.0,
+                "MIN": 0.0,
+                "MAX": 0.0
+            }
+
+        score1 = self.calculate_ri(atom1s, atom2s)
+        score2 = self.calculate_ri(atom2s, atom3s)
+        score3 = self.calculate_ri(atom1s, atom3s)
+
+        triplet_scores = score1 + score2 + score3
+        min_value = min(score1, score2, score3)
+        max_value = max(score1, score2, score3)
+        mean_value = np.mean([score1, score2, score3])  # Mean of all elements
+        std_value = np.std([score1, score2, score3])
+        score = {
+            "SUM": triplet_scores,
+            "MEAN": mean_value,
+            "STD": std_value,
+            "MIN": min_value,
+            "MAX": max_value
+        }
+        return score
+
+    def calculate_all_clusters(self, pro_df, lig_df, cluster_list):
+        results = {}
+        for clu in cluster_list:
+            if 'pro1' in clu and 'pro2' in clu and 'lig' in clu:
+                atom1 = pro_df[pro_df['ATOM_ELEMENT'] == clu['pro1']].values.tolist()
+                atom2 = pro_df[pro_df['ATOM_ELEMENT'] == clu['pro2']].values.tolist()
+                atom3 = lig_df[lig_df['ATOM_ELEMENT'] == clu['lig']].values.tolist()
+            elif 'pro1' in clu and 'lig1' in clu and 'lig2' in clu:
+                atom1 = pro_df[pro_df['ATOM_ELEMENT'] == clu['pro1']].values.tolist()
+                atom2 = lig_df[lig_df['ATOM_ELEMENT'] == clu['lig1']].values.tolist()
+                atom3 = lig_df[lig_df['ATOM_ELEMENT'] == clu['lig2']].values.tolist()
+
+            elif 'pro1' in clu and 'pro2' in clu and 'pro3' in clu:
+                atom1 = pro_df[pro_df['ATOM_ELEMENT'] == clu['pro1']].values.tolist()
+                atom2 = pro_df[pro_df['ATOM_ELEMENT'] == clu['pro2']].values.tolist()
+                atom3 = pro_df[pro_df['ATOM_ELEMENT'] == clu['pro3']].values.tolist()
+
+            elif 'lig1' in clu and 'lig2' in clu and 'lig3' in clu:
+                atom1 = lig_df[lig_df['ATOM_ELEMENT'] == clu['lig1']].values.tolist()
+                atom2 = lig_df[lig_df['ATOM_ELEMENT'] == clu['lig2']].values.tolist()
+                atom3 = lig_df[lig_df['ATOM_ELEMENT'] == clu['lig3']].values.tolist()
+            scores = self.calculate_ri_triplet(atom1, atom2, atom3)
+            results[CLUSTER().format_clustername(clu)] = scores
+        return results
+
+    def get_triplet(self, protein_file, ligand_file):
+        protein_df = self.pdb_to_df(protein_file)
+        ligand_df = self.mol2_to_df(ligand_file)
+        triplet_scores = self.calculate_all_clusters(protein_df, ligand_df, self.cluster.get_cluster()) 
+        return self._create_final_dataframe(triplet_scores)
+
     def _create_final_dataframe(self, triplet_scores):
-        """Convert scores dictionary to final dataframe"""
         results = []
         for key, scores in triplet_scores.items():
             stats = {
-                'SUM': np.sum(scores),
-                'MAX': np.max(scores) ,
-                'MEAN': np.mean(scores) ,
-                'STD': np.std(scores) if len(scores)>1 else 0            }
+                'SUM': scores['SUM'],
+                'MIN': scores['MIN'], 
+                'MAX': scores['MAX'],
+                'MEAN': scores['MEAN'],
+                'STD': scores['STD'],
+            }
             results.append({'type': key, **stats})
         return pd.DataFrame(results)
-class PAIRWISE_SCORE:
+    
+class PAIRWISE_SCORE(PARAMS):
     protein_ligand_atom_types = [
         i[0]+"-"+i[1] for i in product(atoms_lig, atoms_pro)]
-    def __init__(self, Kernel, cutoff):
-        self.Kernel = Kernel
+    def __init__(self, cutoff, tau, kernel_type, power):
+        super().__init__(cutoff, tau, kernel_type, power)
+        self.Kernel = KernelFunction(self.kernel_type, self.power, self.tau)
         self.cutoff = cutoff
         self.atom_lig = atoms_lig
         self.atom_pro = atoms_pro
@@ -275,7 +300,7 @@ class PAIRWISE_SCORE:
             pairwise_score[_f] = 0
         pairwise_score = pairwise_score.set_index('ATOM_PAIR').add(mwcg_temp, fill_value=0).reset_index()
         return pairwise_score
-class SYBYL_GGL:
+class SYBYL_GGL(PARAMS):
     protein_atom_types_df = pd.read_csv(
         './utils/protein_atom_types.csv')
     ligand_atom_types_df = pd.read_csv(
@@ -286,9 +311,9 @@ class SYBYL_GGL:
     ligand_atom_radii = ligand_atom_types_df['Radius'].tolist()
     protein_ligand_atom_types = [
         i[0]+"-"+i[1] for i in product(protein_atom_types, ligand_atom_types)]
-    def __init__(self, Kernel, cutoff):
-        self.Kernel = Kernel
-        self.cutoff = cutoff
+    def __init__(self, cutoff, tau, kernel_type, power):
+        super().__init__(cutoff, tau, kernel_type, power)
+        self.Kernel = KernelFunction(self.kernel_type, self.power, self.tau)
         self.pairwise_atom_type_radii = self.get_pairwise_atom_type_radii()
     def get_pairwise_atom_type_radii(self):
         protein_atom_radii_dict = {a: r for (a, r) in zip(
@@ -396,7 +421,3 @@ def pdb_to_df(pdb_file):
                                  'Y': y, 
                                  'Z': z})
     return df
-if __name__=='__main__':
-    ri_instance = TRIPLET_SCORE(6.0, False, 0.5, 'l')
-    re = ri_instance.get_triplet("/media/bio03/DATA1/tram/MD/Thesis/FRI_Advance/data/2016/CASF-2016/coreset/1a30/1a30_protein.pdb",'/media/bio03/DATA1/tram/MD/Thesis/FRI_Advance/data/2016/CASF-2016/coreset/1a30/1a30_ligand.mol2')
-    re.to_csv("test.csv")
