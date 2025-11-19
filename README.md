@@ -12,7 +12,7 @@ The folder `src` contains the main source code. The code `get_features.py` can b
 
 
 ## Simple Example
-Assume we want to genrate the features for the PDBbind v2016 general set with exponential kernel type and parameters $p$ = 2.5, $\tau=1.5$ and $c$ = 6.0 Assume also the structures of the dataset are in the directory `../PDBbind_v2016_general_Set` and we wish to save the features in the directory `../features`.
+Assume we want to generate the features for the PDBbind v2016 general set with exponential kernel type and parameters $p$ = 2.5, $\tau=1.5$ and $c$ = 6.0 Assume also the structures of the dataset are in the directory `../PDBbind_v2016_general_Set` and we wish to save the features in the directory `../features`.
 
 GGL features are adopted from https://github.com/MathIntelligence/GGL-ETA-Score
 
