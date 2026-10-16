@@ -17,8 +17,8 @@ radius_map = {
                             'S': 1.8,
                             'Cl': 1.7,
                             'C': 1.7,
-                            'Br': 1.5,
-                            'I': 1.5
+                            'Br': 1.85,
+                            'I': 1.98
                         }
 class KernelFunction:
     def __init__(self, kernel_type, power, tau):
